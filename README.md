@@ -10,7 +10,7 @@ Motivated by our observation that [single-cell RNA-seq differential expression t
 
 Install from GitHub
 ```r
-remotes::install_github('cancerbits/DElegate')
+remotes::install_github('aitoe96/DElegate')
 ```
 
 Given a Seurat object `s`, run differential expression tests between each cluster and the rest of the cells.
