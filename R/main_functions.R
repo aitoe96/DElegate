@@ -1,4 +1,4 @@
-
+ 
 #' Differential expression tests for single-cell RNA-seq data
 #'
 #' @param object Input object (of class Seurat, SingleCellExperiment, dgCMatrix, or matrix)
@@ -68,32 +68,40 @@
 #' de_res <- findDE(object = s)
 #' }
 #'
+
 findDE <- function(object,
-                   meta_data = NULL,
-                   group_column = NULL,
-                   replicate_column = NULL,
-                   compare = 'each_vs_rest',
-                   compare_is_ref = FALSE,
-                   method = 'edger',
-                   order_results = TRUE,
-                   lfc_shrinkage = NULL,
-                   verbosity = 1) {
+                  meta_data = NULL,
+                  group_column = NULL,
+                  replicate_column = NULL,
+                  covariates = NULL,  # New parameter
+                  compare = 'each_vs_rest',
+                  compare_is_ref = FALSE,
+                  method = 'edger',
+                  order_results = TRUE,
+                  lfc_shrinkage = NULL,
+                  verbosity = 1) {
+    
   # extract the data from the input object
   de_data <- get_data(object, meta_data, group_column, replicate_column, verbosity)
+  
   # set up the comparisons
   group_levels = levels(x = de_data$grouping)
-  comparisons <- set_up_comparisons(group_levels = group_levels, compare = compare,
-                                    compare_is_ref = compare_is_ref, verbosity = verbosity)
+  comparisons <- set_up_comparisons(group_levels = group_levels, 
+                                  compare = compare,
+                                  compare_is_ref = compare_is_ref, 
+                                  verbosity = verbosity)
   print_comparisons(comparisons, verbosity)
-  # run DE
+  
+  # run DE with covariates
   run_de_comparisons(counts = de_data$counts,
-                     grouping = de_data$grouping,
-                     replicate_label = de_data$replicate_label,
-                     comparisons = comparisons,
-                     method = method,
-                     order_results = order_results,
-                     lfc_shrinkage = lfc_shrinkage,
-                     verbosity = verbosity)
+                    grouping = de_data$grouping,
+                    replicate_label = de_data$replicate_label,
+                    covariates = covariates,  # Pass covariates through
+                    comparisons = comparisons,
+                    method = method,
+                    order_results = order_results,
+                    lfc_shrinkage = lfc_shrinkage,
+                    verbosity = verbosity)
 }
 
 #' Find markers for all groups
