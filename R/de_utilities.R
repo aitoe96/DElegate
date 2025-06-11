@@ -41,40 +41,62 @@ make_pseudoreplicate_label <- function(grouping, G = 3) {
 }
 
 # make pseudo-bulk from single-cell count data
-make_pb <- function(counts, grouping, replicate_label) {
+
+make_pb <- function(counts, grouping, replicate_label, covariates = NULL) {
   grouping <- droplevels(as.factor(grouping))
   group_levels <- levels(grouping)
 
-  if (is.null(replicate_label) | length(replicate_label) == 0) {
+  if (is.null(replicate_label)) {
     replicate_label <- make_pseudoreplicate_label(grouping, G = 3)
   }
   replicate_label <- droplevels(as.factor(replicate_label))
 
+  # Create group-replicate interaction factor
   group_replicate <- interaction(grouping, replicate_label, drop = TRUE)
-  # create pseudobulk
+  
+  # Create pseudobulk counts
   pb <- pseudobulk(counts = counts, grouping = group_replicate)
-
-  # create pseudobulk meta data
+  
+  # Create pseudobulk meta data
   pb_md <- as.data.frame(table(grouping, replicate_label))
   pb_md <- pb_md[pb_md$Freq > 0, ]
-
+  
+  # Handle covariates if provided
+# Handle covariates if provided
+if (!is.null(covariates)) {
+  # For each covariate column
+  covariate_list <- lapply(covariates, function(col) {
+    # Directly extract the unique value for each group-replicate
+    tapply(col, group_replicate, function(x) unique(x))
+  })
+  
+  # Convert list to data frame
+  pb_covariates <- do.call(data.frame, covariate_list)
+  # Ensure row order matches pseudobulk counts
+  pb_covariates <- pb_covariates[colnames(pb), ]
+  
+  return(list(counts = pb, 
+              md = pb_md, 
+              covariates = pb_covariates))
+}
+  
   return(list(counts = pb, md = pb_md))
 }
 
 #' @importFrom magrittr %>%
 #' @importFrom rlang .data
-run_de_one_comp <- function(counts, grouping, replicate_label, comp, method, order_results, lfc_shrinkage, verbosity) {
+run_de_one_comp <- function(counts, grouping, replicate_label, comp, method, order_results, lfc_shrinkage, verbosity, covariates = NULL ) {
   this_grouping <- as.numeric(grouping %in% comp[[3]]) + as.numeric(grouping %in% comp[[4]])*2
   this_grouping <- factor(this_grouping, levels = c(1, 2))
   levels(this_grouping) <- c(comp[[1]], comp[[2]])
-  res <- run_de_simple(counts, this_grouping, replicate_label, method, order_results, lfc_shrinkage, verbosity) %>%
+  res <- run_de_simple(counts, this_grouping, replicate_label, method,  order_results, lfc_shrinkage, verbosity, covariates) %>%
     dplyr::mutate(group1 = factor(comp[[1]]), group2 = factor(comp[[2]]))
   return(res)
 }
 
 #' @importFrom magrittr %>%
 #' @importFrom rlang .data
-run_de_comparisons <- function(counts, grouping, replicate_label, comparisons, method, order_results, lfc_shrinkage, verbosity) {
+run_de_comparisons <- function(counts, grouping, replicate_label, comparisons, method, order_results, lfc_shrinkage, verbosity, covariates = NULL) {
   # keep track of progress if progressr package is installed
   p <- function(x) {
     if (verbosity > 0) {
@@ -89,7 +111,7 @@ run_de_comparisons <- function(counts, grouping, replicate_label, comparisons, m
   if (requireNamespace("future.apply", quietly = TRUE)) {
     res_list <- future.apply::future_lapply(comparisons, function(comp) {
       p(sprintf('Comparing %s vs %s', comp[[1]], comp[[2]]))
-      run_de_one_comp(counts, grouping, replicate_label, comp, method, order_results, lfc_shrinkage, verbosity)
+      run_de_one_comp(counts, grouping, replicate_label, comp,  method, order_results, lfc_shrinkage, verbosity, covariates)
     }, future.seed = TRUE)
   } else {
     message('Consider installing the "future.apply" package for parallelization')
