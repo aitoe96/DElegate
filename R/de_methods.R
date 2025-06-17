@@ -9,7 +9,7 @@ run_de_simple <- function(counts, grouping, replicate_label, method, order_resul
   }
 
   # we are only dealing with bulk methods, so create pseudobulk data
-  pb <- make_pb(counts, grouping, replicate_label)
+  pb <- make_pb(counts, grouping, replicate_label, covariates)
   if (verbosity > 1) {
     message(paste0(c('group vs replicate table', utils::capture.output(pb$md)), collapse = "\n"))
   }
@@ -26,7 +26,7 @@ run_de_simple <- function(counts, grouping, replicate_label, method, order_resul
     if (!requireNamespace("DESeq2", quietly = TRUE)) {
       stop('DESeq2 package not found - please install it to use "method = deseq"')
     }
-    res <- run_deseq_simple(pb$counts, pb$md$grouping, order_results, lfc_shrinkage, covariates)
+    res <- run_deseq_simple(pb$counts, pb$md$grouping, order_results, lfc_shrinkage, covariates = pb$covariates)
   }
   if (method == 'edger') {
     if (!requireNamespace("edgeR", quietly = TRUE)) {
@@ -50,44 +50,48 @@ run_de_simple <- function(counts, grouping, replicate_label, method, order_resul
   return(res)
 }
 
-
-run_deseq_simple <- function(counts, grouping, order_results, lfc_shrinkage, covariates=NULL) {
+run_deseq_simple <- function(counts, grouping, order_results, lfc_shrinkage, covariates = NULL) {
   # Create metadata dataframe
   metadata <- data.frame(grouping = grouping)
   
   # Add covariates if provided
   if (!is.null(covariates)) {
     metadata <- cbind(metadata, covariates)
-    # Create design formula with covariates
-    design_formula <- as.formula(paste("~ ", 
-                                     paste(colnames(covariates), collapse = " + "),
-                                     " + grouping"))
+    # Create design formula including covariates
+    covariate_terms <- paste(colnames(covariates), collapse = " + ")
+    design_formula <- as.formula(paste("~ ", covariate_terms, " + grouping"))
   } else {
     design_formula <- ~ grouping
   }
   
-  # Create and run DESeq object with new design
-  dds <- DESeq2::DESeqDataSetFromMatrix(counts, 
-                                       metadata, 
-                                       design_formula)
-  dds <- DESeq2::DESeq(dds, test = 'Wald', quiet = TRUE)
+  # Create DESeq dataset with appropriate design
+  dds <- DESeq2::DESeqDataSetFromMatrix(
+    counts, 
+    colData = metadata,
+    design = design_formula
+  )
   
-  # Rest of the function remains the same
+  # Run DESeq2
+  dds <- DESeq2::DESeq(dds, test = "Wald", quiet = TRUE)
+  
+  # Get results with or without shrinkage
   if (is.null(lfc_shrinkage)) {
     res <- DESeq2::results(dds)
   } else {
     if (lfc_shrinkage %in% c("apeglm", "ashr", "normal")) {
-      coef_name <- DESeq2::resultsNames(dds)[length(DESeq2::resultsNames(dds))]  # Last coefficient is grouping
+      # Get the coefficient name for the grouping variable (should be last)
+      coef_name <- tail(DESeq2::resultsNames(dds), 1)
       res <- DESeq2::lfcShrink(dds, coef = coef_name, type = lfc_shrinkage)
     } else {
       stop('lfc_shrinkage should be set to NULL or one of "apeglm", "ashr", "normal"')
     }
   }
   
+  # Process results
   res <- as.data.frame(res) %>%
     tibble::rownames_to_column(var = 'feature') %>%
     dplyr::rename('ave_expr' = 'baseMean', 'log_fc' = 'log2FoldChange')
-    
+  
   if (!'stat' %in% colnames(res)) {
     res <- tibble::add_column(res, stat = NA_real_, .before = 'pvalue')
   }
@@ -98,8 +102,10 @@ run_deseq_simple <- function(counts, grouping, order_results, lfc_shrinkage, cov
   if (order_results) {
     res <- dplyr::arrange(res, .data$pvalue, -abs(.data$stat))
   }
+  
   return(res)
 }
+
 
 #' @importFrom magrittr %>%
 #' @importFrom rlang .data
