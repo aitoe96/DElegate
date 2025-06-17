@@ -53,33 +53,51 @@ make_pb <- function(counts, grouping, replicate_label, covariates = NULL) {
 
   # Create group-replicate interaction factor
   group_replicate <- interaction(grouping, replicate_label, drop = TRUE)
-  
+
   # Create pseudobulk counts
   pb <- pseudobulk(counts = counts, grouping = group_replicate)
-  
+
   # Create pseudobulk meta data
   pb_md <- as.data.frame(table(grouping, replicate_label))
   pb_md <- pb_md[pb_md$Freq > 0, ]
-  
+
   # Handle covariates if provided
-# Handle covariates if provided
-if (!is.null(covariates)) {
-  # For each covariate column
-  covariate_list <- lapply(covariates, function(col) {
-    # Directly extract the unique value for each group-replicate
-    tapply(col, group_replicate, function(x) unique(x))
-  })
-  
-  # Convert list to data frame
-  pb_covariates <- do.call(data.frame, covariate_list)
-  # Ensure row order matches pseudobulk counts
-  pb_covariates <- pb_covariates[colnames(pb), ]
-  
-  return(list(counts = pb, 
-              md = pb_md, 
-              covariates = pb_covariates))
-}
-  
+  if (!is.null(covariates)) {
+    covariates <- as.data.frame(covariates)
+
+    # Align covariates with group-replicate combinations
+    pb_covariates <- data.frame(matrix(nrow = ncol(pb), ncol = ncol(covariates)))
+    colnames(pb_covariates) <- colnames(covariates)
+    rownames(pb_covariates) <- colnames(pb)
+
+    for (i in seq_len(ncol(pb))) {
+      gr <- colnames(pb)[i]
+      cells_in_group <- which(group_replicate == gr)
+
+      if (length(cells_in_group) == 0) {
+        stop(paste("No matching cells for group-replicate:", gr))
+      }
+
+      for (j in seq_len(ncol(covariates))) {
+        values <- covariates[cells_in_group, j]
+        if (all(is.na(values))) {
+          pb_covariates[i, j] <- NA
+        } else {
+          pb_covariates[i, j] <- unique(as.character(values))
+        }
+      }
+    }
+
+    # Check for row consistency
+    if (nrow(pb_covariates) != ncol(pb)) {
+      stop("Mismatch between pseudobulk counts and covariate data dimensions.")
+    }
+
+    return(list(counts = pb,
+                md = pb_md,
+                covariates = pb_covariates))
+  }
+
   return(list(counts = pb, md = pb_md))
 }
 
@@ -117,7 +135,7 @@ run_de_comparisons <- function(counts, grouping, replicate_label, comparisons, m
     message('Consider installing the "future.apply" package for parallelization')
     res_list <- lapply(comparisons, function(comp) {
       p(sprintf('Comparing %s vs %s', comp[[1]], comp[[2]]))
-      run_de_one_comp(counts, grouping, replicate_label, comp, method, order_results, lfc_shrinkage, verbosity)
+      run_de_one_comp(counts, grouping, replicate_label, comp, method, order_results, lfc_shrinkage, verbosity,covariates)
     })
   }
 
