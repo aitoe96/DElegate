@@ -32,7 +32,7 @@ run_de_simple <- function(counts, grouping, replicate_label, method, order_resul
     if (!requireNamespace("edgeR", quietly = TRUE)) {
       stop('edgeR package not found - please install it to use "method = edger"')
     }
-    res <- run_edger_simple(pb$counts, pb$md$grouping, order_results)
+    res <- run_edger_simple(pb$counts, pb$md$grouping, order_results, covariates = pb$covariates)
   }
   if (method == 'limma') {
     if (!requireNamespace("edgeR", quietly = TRUE) | !requireNamespace("limma", quietly = TRUE)) {
@@ -109,15 +109,26 @@ run_deseq_simple <- function(counts, grouping, order_results, lfc_shrinkage, cov
 
 #' @importFrom magrittr %>%
 #' @importFrom rlang .data
-run_edger_simple <- function(counts, grouping, order_results) {
-  design <- stats::model.matrix(~ grouping)
+run_edger_simple <- function(counts, grouping, order_results, covariates = NULL) {
+
+  # Create metadata dataframe
+  metadata <- data.frame(grouping = grouping)
+
+  # Add covariates if provided
+  if (!is.null(covariates)) {
+    metadata <- cbind(metadata, covariates)
+    covariate_terms <- paste(colnames(covariates), collapse = " + ")
+    design_formula <- stats::as.formula(paste("~", covariate_terms, "+ grouping"))
+    design <- stats::model.matrix(design_formula, data = metadata)
+  } else {
+    design <- stats::model.matrix(~ grouping, data = metadata)
+  }
 
   y <- edgeR::DGEList(counts = counts, group = grouping)
   y <- edgeR::calcNormFactors(y)
   y <- edgeR::estimateDisp(y, design)
   fit <- edgeR::glmQLFit(y, design)
   test_res <- edgeR::glmQLFTest(fit)
-
   res <- test_res$table %>%
     tibble::rownames_to_column(var = 'feature') %>%
     dplyr::rename('ave_expr' = 'logCPM', 'log_fc' = 'logFC', 'stat' = 'F', 'pvalue' = 'PValue') %>%
