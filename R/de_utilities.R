@@ -41,65 +41,53 @@ make_pseudoreplicate_label <- function(grouping, G = 3) {
 }
 
 # make pseudo-bulk from single-cell count data
-
 make_pb <- function(counts, grouping, replicate_label, covariates = NULL) {
   grouping <- droplevels(as.factor(grouping))
   group_levels <- levels(grouping)
-
   if (is.null(replicate_label)) {
     replicate_label <- make_pseudoreplicate_label(grouping, G = 3)
   }
   replicate_label <- droplevels(as.factor(replicate_label))
-
   # Create group-replicate interaction factor
   group_replicate <- interaction(grouping, replicate_label, drop = TRUE)
-
   # Create pseudobulk counts
   pb <- pseudobulk(counts = counts, grouping = group_replicate)
-
   # Create pseudobulk meta data
   pb_md <- as.data.frame(table(grouping, replicate_label))
   pb_md <- pb_md[pb_md$Freq > 0, ]
-
   # Handle covariates if provided
   if (!is.null(covariates)) {
     covariates <- as.data.frame(covariates)
 
-    # Align covariates with group-replicate combinations
-    pb_covariates <- data.frame(matrix(nrow = ncol(pb), ncol = ncol(covariates)))
-    colnames(pb_covariates) <- colnames(covariates)
+    gr_chr <- as.character(group_replicate)
+
+    # Check that each covariate is constant within each pseudobulk
+    for (j in seq_len(ncol(covariates))) {
+      n_vals <- tapply(covariates[[j]], gr_chr,
+                       function(x) length(unique(x[!is.na(x)])))
+      bad <- names(n_vals)[n_vals > 1]
+      if (length(bad) > 0) {
+        stop(sprintf("Covariate '%s' is not constant within: %s",
+                     colnames(covariates)[j], paste(bad, collapse = ", ")))
+      }
+    }
+
+    # Representative cell (the first) per pseudobulk column -> preserves type
+    rep_cell <- match(colnames(pb), gr_chr)
+    if (anyNA(rep_cell)) {
+      stop("No matching cells for some group-replicate columns.")
+    }
+    pb_covariates <- covariates[rep_cell, , drop = FALSE]
+    pb_covariates <- droplevels(pb_covariates)   # drop orphan factor levels, leaves numerics untouched
     rownames(pb_covariates) <- colnames(pb)
-
-    for (i in seq_len(ncol(pb))) {
-      gr <- colnames(pb)[i]
-      cells_in_group <- which(group_replicate == gr)
-
-      if (length(cells_in_group) == 0) {
-        stop(paste("No matching cells for group-replicate:", gr))
-      }
-
-      for (j in seq_len(ncol(covariates))) {
-        values <- covariates[cells_in_group, j]
-        if (all(is.na(values))) {
-          pb_covariates[i, j] <- NA
-        } else {
-          pb_covariates[i, j] <- unique(as.character(values))
-        }
-      }
-    }
-
-    # Check for row consistency
-    if (nrow(pb_covariates) != ncol(pb)) {
-      stop("Mismatch between pseudobulk counts and covariate data dimensions.")
-    }
 
     return(list(counts = pb,
                 md = pb_md,
                 covariates = pb_covariates))
   }
-
   return(list(counts = pb, md = pb_md))
 }
+
 
 #' @importFrom magrittr %>%
 #' @importFrom rlang .data
